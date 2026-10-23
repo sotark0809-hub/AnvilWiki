@@ -20,6 +20,19 @@
  *   pnpm apply-template --answers answers.json  non-interactive: JSON array of
  *                               raw answers, one per prompt in order ("" = enter
  *                               = default). For CI and scripted runs.
+ *   pnpm apply-template --config apply-template.config.md
+ *                               non-interactive: NAMED-FIELD markdown config
+ *                               (readable, order-free, correct a field by
+ *                               editing the file). Generate the annotated
+ *                               template with --init-config; missing fields
+ *                               fall back to the interactive defaults, and a
+ *                               re-run keeps current site values exactly like
+ *                               enter-through. Field contract lives in
+ *                               scripts/lib/apply-template-config-md.ts.
+ *   pnpm apply-template --init-config [path]
+ *                               write the annotated config template (default
+ *                               apply-template.config.md) and exit — no
+ *                               prompts, no repo reads, never overwrites.
  *   pnpm apply-template --lang zh          force the CLI UI language (en|zh).
  *                               Interactive TTY runs are asked instead (enter =
  *                               the LANG-derived default); --answers/piped/CI
@@ -81,6 +94,12 @@ import {
   type CliLang,
   type CliStrings,
 } from './lib/apply-template-i18n';
+import {
+  buildAnswerQueue,
+  checkRequired,
+  generateConfigTemplateMd,
+  parseConfigMd,
+} from './lib/apply-template-config-md';
 
 const ROOT = process.cwd();
 const ARGS = process.argv.slice(2);
@@ -106,6 +125,25 @@ let T: CliStrings = APPLY_TEMPLATE_STRINGS.en;
 const answersIdx = ARGS.indexOf('--answers');
 const ANSWERS_FILE =
   answersIdx >= 0 ? ARGS[answersIdx + 1] : ARGS.find((a) => a.startsWith('--answers='))?.split('=').slice(1).join('=');
+
+// --config <file.md> (or --config=<file>): named-field markdown alternative to
+// --answers. Parsed into the SAME positional scripted queue, so every
+// downstream prompt, default and validation stays on one code path.
+const configIdx = ARGS.indexOf('--config');
+const CONFIG_FILE =
+  configIdx >= 0 ? ARGS[configIdx + 1] : ARGS.find((a) => a.startsWith('--config='))?.split('=').slice(1).join('=');
+
+// --init-config [path]: write the annotated config template and exit. Default
+// path apply-template.config.md; never overwrites an existing file.
+const initIdx = ARGS.indexOf('--init-config');
+const INIT_CONFIG_PATH =
+  ARGS.find((a) => a.startsWith('--init-config='))?.split('=').slice(1).join('=') ??
+  (initIdx >= 0 && ARGS[initIdx + 1] && !ARGS[initIdx + 1].startsWith('--')
+    ? ARGS[initIdx + 1]
+    : initIdx >= 0
+      ? 'apply-template.config.md'
+      : undefined);
+
 let scripted: string[] | null = null;
 
 /**
@@ -113,6 +151,14 @@ let scripted: string[] | null = null;
  * the very start of main(), before any prompt or file write.
  */
 function loadScriptedAnswers(): void {
+  if (CONFIG_FILE) {
+    if (ANSWERS_FILE) {
+      console.error('❌ --config and --answers are mutually exclusive — pick one answer source.');
+      process.exit(1);
+    }
+    loadConfigMdAnswers();
+    return;
+  }
   if (!ANSWERS_FILE) return;
   let parsed: unknown;
   try {
@@ -154,6 +200,49 @@ function warnOnLeftoverAnswers(): void {
   if (scripted && scripted.length > 0) {
     console.warn(`⚠️  ${scripted.length} scripted answer(s) left over — the answers file has MORE entries than the CLI has prompts. Update the file to match the prompt order.`);
   }
+}
+
+/**
+ * Load the --config markdown file into the scripted queue. Pure parse +
+ * validation here; every prompt-level check (hex, locales include en,
+ * slugify, containsControlChar) stays in its original place, so md runs and
+ * interactive runs fail identically on bad values.
+ */
+function loadConfigMdAnswers(): void {
+  let md: string;
+  try {
+    md = fs.readFileSync(path.resolve(ROOT, CONFIG_FILE as string), 'utf8');
+  } catch (err) {
+    console.error(
+      `❌ Could not read the --config file "${CONFIG_FILE}": ${err instanceof Error ? err.message : err}`,
+    );
+    console.error('   Generate the annotated template with: pnpm apply-template --init-config');
+    process.exit(1);
+  }
+  const { values, unknownKeys, errors } = parseConfigMd(md);
+  if (errors.length > 0) {
+    for (const err of errors) console.error(`❌ ${CONFIG_FILE}: ${err}`);
+    process.exit(1);
+  }
+  if (unknownKeys.length > 0) {
+    console.warn(
+      `⚠️  Unknown field(s) ignored: ${unknownKeys.map((k) => `"${k}"`).join(', ')} — check for typos (fields are case-insensitive).`,
+    );
+  }
+  const { missingRequired, requiredDefaults } = checkRequired(values);
+  if (missingRequired.length > 0) {
+    console.warn('⚠️  Required field(s) missing — the defaults below will be used this run:');
+    for (const k of missingRequired) console.warn(`      ${k} → ${requiredDefaults[k]}`);
+    console.warn(
+      '   (On a re-run these fall back to the CURRENT site values instead — enter-through semantics.)',
+    );
+  }
+  scripted = buildAnswerQueue({
+    values,
+    askClearContent: !KEEP_CONTENT,
+    askClearLanding: !KEEP_LANDING,
+    askProceed: !DRY_RUN,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -662,6 +751,23 @@ function removeLandingPage(): number {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // --init-config short-circuits everything: write the template, exit. Runs
+  // before loadScriptedAnswers() so no config file is read in this mode.
+  if (INIT_CONFIG_PATH) {
+    const target = path.resolve(ROOT, INIT_CONFIG_PATH);
+    if (fs.existsSync(target)) {
+      console.error(
+        `❌ ${INIT_CONFIG_PATH} already exists — refusing to overwrite. Delete it first or pass a different path.`,
+      );
+      process.exit(1);
+    }
+    writeAtomic(target, generateConfigTemplateMd());
+    console.log(`✅ Wrote the annotated config template: ${INIT_CONFIG_PATH}`);
+    console.log(`   下一步: 编辑字段后运行  pnpm apply-template --config ${INIT_CONFIG_PATH}`);
+    console.log(`   Next: edit the fields, then run  pnpm apply-template --config ${INIT_CONFIG_PATH}`);
+    process.exit(0);
+  }
+
   loadScriptedAnswers();
 
   if (LANG_FLAG === 'invalid') {

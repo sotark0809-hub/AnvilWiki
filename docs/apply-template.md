@@ -23,6 +23,8 @@
 
 > 想自动化基础配置？运行 `pnpm apply-template`，它会交互式引导你完成 site.ts / navigation.ts / globals.css / routing.ts / locales 的修改。脚本化/CI 场景用 `pnpm apply-template --answers answers.json` 非交互驱动（与交互同一问答路径，答案缺失或多余都会响亮报告）。交互界面默认英文，开头会先问一句界面语言（输 `1` 即全程中文提问，回车按系统 LANG 推导默认——中文终端默认中文）；非交互通道可用 `--lang zh` 指定中文，缺省英文——`--answers` 的答案位置序不受语言影响。注意：交互模式下开头的语言提问会消费你输入的第一行——整段粘贴答案文件请直接走 `--answers`，不要在交互模式里粘。
 
+> **不想逐题问答（答错就得重来）？** 用 `--config` 模式：`pnpm apply-template --init-config` 生成带中文注释的具名字段配置模板 `apply-template.config.md`（每个字段标注【必填】/【可选】和默认值语义），改完字段后 `pnpm apply-template --config apply-template.config.md` 一次执行。字段**具名且顺序无关**——只改想改的，改哪看哪；**未填写的字段 = 回车 = 默认值**（重跑时默认值即站点当前值，所以"只改主题色重跑"是合法用法）；必填缺失会警告但不阻塞，未知字段名（拼写错误）会响亮警告。预演用 `--dry-run` 或把模板里的 `confirm` 写成 `no`。字段契约与答案队列由 `scripts/lib/apply-template-config-md.ts` 提供，`tests/apply-template-config-md.test.ts` 钉住回环与顺序。
+
 ---
 
 ## 初始化清理规范（fork 后哪些"没用的内容"会被删掉）

@@ -343,6 +343,108 @@ const adRefs = [];
 })(join(scratch, 'dist'));
 if (adRefs.length) fail(`ad iframes rendered in the fork build (template must ship ad-free): ${adRefs.join(', ')}`);
 console.log('  ✅ no ad iframes anywhere in dist');
+
+// ---------------------------------------------------------------------------
+// 6. --config markdown mode: named-field md file → the SAME scripted queue as
+// --answers. Runs AFTER the build assertions on purpose: an already-skinned
+// site exercises re-run semantics — missing fields must fall back to the
+// site's CURRENT values (enter-through), so only fields present in the md
+// change. This keeps every assertion above on the Test Game state.
+// ---------------------------------------------------------------------------
+step('apply-template --config (named-field md, re-run on a configured site)');
+
+// 6a. --init-config writes the annotated template; a second run must refuse
+// to overwrite (never destroy a user's edited config).
+const init = spawnSync('pnpm', ['apply-template', '--init-config', 'e2e-config.md'], {
+  cwd: scratch,
+  encoding: 'utf8',
+  shell: win,
+  timeout: 5 * 60 * 1000,
+});
+if (init.status !== 0) {
+  if (init.stderr) console.error(init.stderr);
+  fail(`--init-config exited ${init.status}${init.error ? ` (${init.error.message})` : ''}`);
+}
+if (!existsSync(join(scratch, 'e2e-config.md'))) fail('--init-config wrote nothing');
+const overwrite = spawnSync('pnpm', ['apply-template', '--init-config', 'e2e-config.md'], {
+  cwd: scratch,
+  encoding: 'utf8',
+  shell: win,
+  timeout: 5 * 60 * 1000,
+});
+if (overwrite.status === 0) fail('--init-config silently overwrote an existing config file');
+console.log('  ✅ --init-config wrote the template and refuses to overwrite');
+
+// 6b. Dry-run plan: md values surface in the plan, no file is touched.
+const configMd = readFileSync(join(scratch, 'e2e-config.md'), 'utf8')
+  .replaceAll('Sword of Legends', 'Config Game')
+  .replaceAll('#3b82f6', '#ff0000');
+writeFileSync(join(scratch, 'e2e-config.md'), configMd, 'utf8');
+const dry = spawnSync('pnpm', ['apply-template', '--config', 'e2e-config.md', '--dry-run'], {
+  cwd: scratch,
+  encoding: 'utf8',
+  shell: win,
+  timeout: 5 * 60 * 1000,
+});
+if (dry.status !== 0) {
+  if (dry.stderr) console.error(dry.stderr);
+  fail(`--config --dry-run exited ${dry.status}${dry.error ? ` (${dry.error.message})` : ''}`);
+}
+if (!/Config Game/.test(dry.stdout || '')) fail('dry-run plan does not reflect the md config values');
+if (readFileSync(join(scratch, 'src/locales/en.json'), 'utf8').includes('Config Game')) {
+  fail('dry-run WROTE files — --dry-run must plan only');
+}
+console.log('  ✅ --config --dry-run plans from the md without writing');
+
+// 6c. Real run on the configured site: md-present fields apply, everything
+// else keeps the current site values (enter-through on a re-run).
+const real = spawnSync('pnpm', ['apply-template', '--config', 'e2e-config.md'], {
+  cwd: scratch,
+  encoding: 'utf8',
+  shell: win,
+  timeout: 5 * 60 * 1000,
+});
+if (real.status !== 0) {
+  if (real.stderr) console.error(real.stderr);
+  fail(`--config real run exited ${real.status}${real.error ? ` (${real.error.message})` : ''}`);
+}
+if (!/Base config complete/.test(real.stdout || '')) fail('--config run never reached its completion marker');
+if (/left over/.test((real.stdout || '') + (real.stderr || ''))) {
+  fail('--config queue desynced from the prompt sequence (leftover answers)');
+}
+if (!readFileSync(join(scratch, 'src/locales/en.json'), 'utf8').includes('Config Game')) {
+  fail('--config run did not apply the md identity to the locale file');
+}
+if (!readFileSync(join(scratch, 'src/styles/globals.css'), 'utf8').includes('--brand: 0 100% 50%')) {
+  fail('--config run did not apply the md theme hex (#ff0000 → HSL 0 100% 50%)');
+}
+console.log('  ✅ --config applied the named fields end to end');
+
+// 6d. Typo guard + missing-required warning must be LOUD, not silent: a typo
+// key is ignored (warned), missing required keys warn with the defaults, and
+// the run still completes (enter-through on every question).
+const typoMd = [
+  '# config with a typo and no required fields',
+  '- **gameNmae**: Typo Game',
+  '- **confirm**: yes',
+  '',
+].join('\n');
+writeFileSync(join(scratch, 'e2e-config-typo.md'), typoMd, 'utf8');
+const typo = spawnSync('pnpm', ['apply-template', '--config', 'e2e-config-typo.md'], {
+  cwd: scratch,
+  encoding: 'utf8',
+  shell: win,
+  timeout: 5 * 60 * 1000,
+});
+if (typo.status !== 0) {
+  if (typo.stderr) console.error(typo.stderr);
+  fail(`--config typo run exited ${typo.status} (missing required keys must warn, not block)`);
+}
+const typoOut = (typo.stdout || '') + (typo.stderr || '');
+if (!/Unknown field/.test(typoOut)) fail('typo field did not produce the unknown-key warning');
+if (!/Required field\(s\) missing/.test(typoOut)) fail('missing required keys did not produce the warning');
+console.log('  ✅ typo and missing-required fields warn loudly without blocking');
+
 if (failed) process.exit(1);
 
 console.log('\n✅ E2E passed — apply-template real mode produces a buildable site');
