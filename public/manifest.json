@@ -1,11 +1,11 @@
 {
-  "name": "Anvil Quest Wiki",
-  "short_name": "AQ Wiki",
-  "description": "Complete Anvil Quest wiki with boss guides, codes, and tier lists.",
+  "name": "Enshrouded Wiki",
+  "short_name": "Enshrouded",
+  "description": "Open Enshrouded Wiki: community guides, builds, crafting recipes, boss strategies, interactive maps and secrets for the survival action RPG Enshrouded in Embervale.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#f36716",
+  "theme_color": "#c86a37",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
