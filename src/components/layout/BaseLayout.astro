@@ -342,6 +342,22 @@ const privacyLabel = consent?.privacyLabel ?? footerStrings.privacyPolicy ?? 'Pr
         });
       })();
     </script>
+    {/* Microsoft Clarity — session replay & heatmaps */}
+    <script is:inline>
+      (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+      })(window, document, "clarity", "script", "z774xfnoue");
+    </script>
+  </head>
+  <body class="min-h-screen bg-background text-foreground antialiased">
+    <slot />
+    {/* Consent banner — only rendered when tracking env vars are set. */}
+    {(gaId || adsenseClient) && (
+      <CookieConsent
+        labels={{
+          title: consentLabels.title,
           text: consentLabels.text,
           accept: consentLabels.accept,
           decline: consentLabels.decline,
