@@ -342,14 +342,6 @@ const privacyLabel = consent?.privacyLabel ?? footerStrings.privacyPolicy ?? 'Pr
         });
       })();
     </script>
-  </head>
-  <body class="min-h-screen bg-background text-foreground antialiased">
-    <slot />
-    {/* Consent banner — only rendered when tracking env vars are set. */}
-    {(gaId || adsenseClient) && (
-      <CookieConsent
-        labels={{
-          title: consentLabels.title,
           text: consentLabels.text,
           accept: consentLabels.accept,
           decline: consentLabels.decline,
